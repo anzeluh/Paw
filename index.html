@@ -3,8 +3,6 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0f172a">
 <title>PawScan AI — Dog Breed Identifier</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
@@ -146,7 +144,7 @@
   }
   #videoEl {
     width: 100%; height: 100%; object-fit: cover;
-	transform: none;
+    transform: scaleX(-1);
   }
   .cam-overlay {
     position: absolute; inset: 0;
@@ -426,7 +424,8 @@
 
     <div class="cam-btn-row">
       <button class="btn-primary" id="btnStartCam" style="flex:1" onclick="toggleCamera()">▶ Start Camera</button>
-      <button class="btn-secondary" id="btnCapture" style="width:auto;padding:14px 20px" onclick="captureFrame()" disabled>📸</button>
+      <button class="btn-secondary" id="btnFlip" style="width:auto;padding:14px 16px;font-size:20px" onclick="flipCamera()" disabled title="Flip Camera">🔄</button>
+      <button class="btn-secondary" id="btnCapture" style="width:auto;padding:14px 16px;font-size:20px" onclick="captureFrame()" disabled title="Capture">📸</button>
     </div>
 
     <div id="cameraBreedResult"></div>
@@ -549,6 +548,7 @@ let classLabels = [];
 let cameraActive = false;
 let predictionInterval = null;
 let currentUploadDataURL = null;
+let currentFacingMode = 'environment'; // 'environment' = rear, 'user' = front
 
 // ─── SPLASH & MODEL LOADING ───────────────────────────────────────────────────
 async function loadModel() {
@@ -618,6 +618,25 @@ function switchTab(tab) {
 }
 
 // ─── CAMERA ───────────────────────────────────────────────────────────────────
+async function startCameraStream(facingMode) {
+  const video = document.getElementById('videoEl');
+
+  // Stop existing tracks first
+  if(video.srcObject) {
+    video.srcObject.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+  }
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: facingMode, width:{ideal:640}, height:{ideal:480} }, audio: false
+  });
+
+  video.srcObject = stream;
+  // Mirror only the front camera
+  video.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+  await video.play();
+}
+
 async function toggleCamera() {
   if(cameraActive) { stopCamera(); return; }
 
@@ -625,17 +644,13 @@ async function toggleCamera() {
   btn.disabled = true; btn.textContent = 'Starting…';
 
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width:{ideal:640}, height:{ideal:480} }, audio: false
-    });
-    const video = document.getElementById('videoEl');
-    video.srcObject = stream;
-    await video.play();
+    await startCameraStream(currentFacingMode);
 
     document.getElementById('camOverlay').classList.add('hidden');
     document.getElementById('scanLine').classList.add('active');
     document.getElementById('liveResult').classList.add('visible');
     document.getElementById('btnCapture').disabled = false;
+    document.getElementById('btnFlip').disabled = false;
 
     btn.textContent = '⏹ Stop Camera';
     btn.style.background = 'linear-gradient(135deg, #333, #555)';
@@ -651,6 +666,31 @@ async function toggleCamera() {
   }
 }
 
+async function flipCamera() {
+  if(!cameraActive) return;
+  const btn = document.getElementById('btnFlip');
+  btn.disabled = true;
+  btn.style.transition = 'transform 0.4s ease';
+  btn.style.transform = 'rotate(180deg)';
+
+  currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+
+  try {
+    await startCameraStream(currentFacingMode);
+    showToast(currentFacingMode === 'user' ? '🤳 Switched to front camera' : '📷 Switched to rear camera');
+  } catch(err) {
+    // Revert if flip fails
+    currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+    await startCameraStream(currentFacingMode);
+    showToast('⚠️ Could not switch camera');
+  }
+
+  setTimeout(() => {
+    btn.style.transform = 'rotate(0deg)';
+    btn.disabled = false;
+  }, 400);
+}
+
 function stopCamera() {
   const video = document.getElementById('videoEl');
   if(video.srcObject) {
@@ -664,6 +704,7 @@ function stopCamera() {
   document.getElementById('scanLine').classList.remove('active');
   document.getElementById('liveResult').classList.remove('visible');
   document.getElementById('btnCapture').disabled = true;
+  document.getElementById('btnFlip').disabled = true;
 
   const btn = document.getElementById('btnStartCam');
   btn.textContent = '▶ Start Camera';
@@ -878,13 +919,6 @@ function showToast(msg) {
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 loadModel();
-</script>
-<script>
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./service-worker.js')
-      .then(() => console.log("Service Worker Registered"))
-      .catch(err => console.log("SW registration failed:", err));
-  }
 </script>
 </body>
 </html>
